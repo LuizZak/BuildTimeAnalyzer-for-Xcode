@@ -34,7 +34,6 @@ extension LogProcessorProtocol {
     private func process(text: String) {
         let characterSet = CharacterSet(charactersIn:"\r\"")
         var remainingRange = text.startIndex..<text.endIndex
-        let regex = try! NSRegularExpression(pattern:  "^\\d*\\.?\\d*ms\\t/", options: [])
         
         rawMeasures.removeAll()
         
@@ -47,22 +46,35 @@ extension LogProcessorProtocol {
                 remainingRange = nextRange.upperBound..<remainingRange.upperBound
             }
             
-            let range = NSMakeRange(0, text.characters.count)
-            guard let match = regex.firstMatch(in: text, options: [], range: range) else { continue }
+            let lexer = Lexer(input: text)
             
-            let timeString = text.substring(to: text.characters.index(text.startIndex, offsetBy: match.range.length - 4))
-            if let time = Double(timeString) {
-                let value = text.substring(from: text.characters.index(text.startIndex, offsetBy: match.range.length - 1))
-                if var rawMeasure = rawMeasures[value] {
-                    rawMeasure.time += time
-                    rawMeasure.references += 1
-                    rawMeasures[value] = rawMeasure
-                } else {
-                    rawMeasures[value] = RawMeasure(time: time, text: value)
+            // Read time string
+            do {
+                // Read '#.##ms\t' time string.
+                let timeString = try lexer.parseFloatString()
+                
+                // This is faster than doing lexer.advanceIf(equals: "ms\t")
+                try lexer.advance(expectingCurrent: "m")
+                try lexer.advance(expectingCurrent: "s")
+                try lexer.advance(expectingCurrent: "\t")
+                
+                if let time = Double(timeString) {
+                    let value = lexer.consumeRemaining()
+                    if var rawMeasure = rawMeasures[value] {
+                        rawMeasure.time += time
+                        rawMeasure.references += 1
+                        rawMeasures[value] = rawMeasure
+                    } else {
+                        rawMeasures[value] = RawMeasure(time: time, text: value)
+                    }
                 }
+            } catch {
+                
             }
+            
             guard !shouldCancel else { break }
         }
+        
         processingDidFinish()
     }
     
